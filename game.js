@@ -676,6 +676,9 @@ function drawGame() {
 function drawPaused() {
     drawGame(); // render game underneath
 
+    // Clear game-layer buttons — only pause-screen controls are interactive while paused
+    buttons = [];
+
     ctx.fillStyle = T.overlay; ctx.fillRect(0, 0, W, H);
 
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -683,12 +686,22 @@ function drawPaused() {
     ctx.fillStyle = T.white;
     ctx.fillText('PAUSED', W/2, H/2 - 23);
 
-    ctx.font = '400 10px "JetBrains Mono",monospace';
-    ctx.fillStyle = T.dim;
-    ctx.fillText('PRESS  P  TO  CONTINUE', W/2, H/2 + 15);
+    // Clickable ▶ resume icon
+    const iconR = 28;
+    const iconX = W/2;
+    const iconY = H/2 + 30;
+    ctx.beginPath();
+    ctx.arc(iconX, iconY, iconR, 0, Math.PI * 2);
+    ctx.strokeStyle = T.accent;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.font = '700 24px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.accent;
+    ctx.fillText('▶', iconX + 2, iconY); // +2 optical centre for ▶ glyph
+    reg(iconX - iconR, iconY - iconR, iconR * 2, iconR * 2, () => { gameState = 'playing'; });
 
     // Main menu button
-    const bw = 190, bh = 34, bx = W/2 - 95, by = H/2 + 50;
+    const bw = 190, bh = 34, bx = W/2 - 95, by = H/2 + 78;
     rBtn(bx, by, bw, bh, T.btnBg, T.btnBorder);
     ctx.font = '500 11px "JetBrains Mono",monospace';
     ctx.fillStyle = T.dim;
