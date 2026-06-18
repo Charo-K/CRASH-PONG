@@ -1,0 +1,124 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: #050C01;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* ── CRT Background (full-page, behind computer frame) ──────────────── */
+#crt-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+}
+
+.crt-bg-area {
+    width: 100%;
+    height: 100%;
+}
+
+/* Wrapper sized to the computer SVG's 552 × 585 aspect ratio */
+#computer-frame {
+    position: relative;
+    z-index: 1; /* above #crt-bg */
+    aspect-ratio: 552 / 585;
+    /* Fit entirely on screen: constrain by whichever dimension is tighter */
+    width: min(90vw, calc(90vh * 552 / 585));
+}
+
+/* Computer SVG rendered on top so its bezel / keyboard overlay the canvas edges */
+#computer-img {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none; /* clicks pass through to canvas */
+    z-index: 2;
+}
+
+/*
+ * Screen slot positioned to match the inner display rectangle of computer.svg
+ * SVG coords:  x 76.28 → 468.91,  y 91.55 → 410.97  (in a 552 × 585 viewBox)
+ * As %:        left 13.82%,  top 15.65%,  width 71.13%,  height 54.60%
+ */
+#screen-slot {
+    position: absolute;
+    left:   13.82%;
+    top:    15.65%;
+    width:  71.13%;
+    height: 54.60%;
+    background: #050C01;   /* fills the letter-box bars beside the portrait canvas */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    /* Match the SVG screen's rounded corners (radius ~8.93 SVG units):
+       horizontal = 8.93/392.62 = 2.275% of slot width
+       vertical   = 8.93/319.42 = 2.796% of slot height */
+    border-radius: 2.275% / 2.796%;
+    z-index: 1;            /* behind the computer SVG overlay */
+}
+
+/* Canvas scales to fill the slot height, keeping its 480 × 720 aspect ratio */
+#gameCanvas {
+    display: block;
+    height: 100%;
+    width: auto;
+    image-rendering: pixelated;
+    cursor: none;
+}
+
+/* ── Full-page CRT overlay ─────────────────────────────────────────── */
+/* Sits above everything; pointer-events off so clicks pass through     */
+#page-crt {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    /* Scanlines + aperture grille as stacked CSS gradients */
+    background:
+        repeating-linear-gradient(
+            0deg,
+            rgba(0, 0, 0, 0.07) 0px,
+            rgba(0, 0, 0, 0.07) 1px,
+            transparent         1px,
+            transparent         3px
+        ),
+        repeating-linear-gradient(
+            90deg,
+            rgba(0, 0, 0, 0.025) 0px,
+            rgba(0, 0, 0, 0.025) 1px,
+            transparent          1px,
+            transparent          3px
+        );
+    animation: pageCrtFlicker 0.18s linear infinite;
+}
+
+/* Vignette: darkens the page corners/edges */
+#page-crt::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+        ellipse 85% 75% at 50% 44%,
+        transparent 28%,
+        rgba(0, 0, 0, 0.45) 100%
+    );
+}
+
+@keyframes pageCrtFlicker {
+    0%   { opacity: 0.975; }
+    30%  { opacity: 1.000; }
+    52%  { opacity: 0.955; }
+    70%  { opacity: 0.990; }
+    87%  { opacity: 0.970; }
+    100% { opacity: 0.975; }
+}
