@@ -123,9 +123,15 @@ const SPEED_CAP     = 13;
 const SPEED_FACTOR  = 1.04;
 
 // ── Game state ─────────────────────────────────
-let gameState   = 'menu'; // menu | countdown | playing | paused | gameover
-let canContinue = false;  // true when a game is in progress and can be resumed
-let serveCount = 0;
+let gameState   = 'intro'; // intro | menu | countdown | playing | paused | gameover | leaderboard
+let canContinue = false;   // true when a game is in progress and can be resumed
+let serveCount  = 0;
+
+// ── Leaderboard ────────────────────────────────
+let playerName  = '';
+let cursorBlink = 0;
+let leaderboard  = JSON.parse(localStorage.getItem('crashpong_lb')    || '[]');
+let recentNames  = JSON.parse(localStorage.getItem('crashpong_names') || '[]');
 
 // ── Entities ───────────────────────────────────
 const player = { x: W/2 - PADDLE_W/2, y: H - PADDLE_MARGIN - PADDLE_H, w: PADDLE_W, h: PADDLE_H };
@@ -161,13 +167,23 @@ window.addEventListener('resize', () => { cRect = canvas.getBoundingClientRect()
 document.addEventListener('keydown', e => {
     keys.add(e.key);
     resumeAudio();
+    if (gameState === 'intro') {
+        if (e.key === 'Backspace') { playerName = playerName.slice(0, -1); e.preventDefault(); return; }
+        if (e.key === 'Enter')     { startGame(); return; }
+        if (e.key === 'Escape')    { playerName = ''; return; }
+        if (e.key.length === 1 && playerName.length < 12) { playerName += e.key.toUpperCase(); return; }
+        return;
+    }
     if (e.key === 'p' || e.key === 'P') {
         if (gameState === 'playing') gameState = 'paused';
         else if (gameState === 'paused') gameState = 'playing';
     }
     if (e.key === 'Escape') {
-        if (gameState === 'gameover') goToMenu();
-        else if (['playing','paused','countdown'].includes(gameState)) goToMenuKeepGame();
+        if (gameState === 'gameover')                                      goToMenu();
+        else if (['playing','paused','countdown'].includes(gameState))     goToMenuKeepGame();
+        else if (gameState === 'menu')        gameState = canContinue ? 'playing' : 'intro';
+        else if (gameState === 'leaderboard') gameState = 'intro';
+        else if (gameState === 'playerlist')  gameState = 'intro';
     }
 });
 document.addEventListener('keyup', e => keys.delete(e.key));
@@ -196,11 +212,29 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 // ── Game flow ──────────────────────────────────
 function goToMenu() {
-    gameState    = 'menu';
+    gameState    = 'intro';
     canContinue  = false;
     score.player = 0;
     score.cpu    = 0;
     serveCount   = 0;
+}
+
+function saveToLeaderboard() {
+    const name = playerName.trim();
+    if (!name) return;
+    leaderboard.push({
+        name,
+        playerScore : score.player,
+        cpuScore    : score.cpu,
+        won         : score.player >= settings.scoreToWin,
+    });
+    leaderboard.sort((a, b) => {
+        if (a.won !== b.won) return b.won ? 1 : -1;
+        if (b.playerScore !== a.playerScore) return b.playerScore - a.playerScore;
+        return a.cpuScore - b.cpuScore;
+    });
+    leaderboard = leaderboard.slice(0, 20);
+    localStorage.setItem('crashpong_lb', JSON.stringify(leaderboard));
 }
 
 // Go to menu but keep the current game resumable
@@ -210,11 +244,16 @@ function goToMenuKeepGame() {
 }
 
 function startGame() {
+    const name = playerName.trim();
+    if (name) {
+        recentNames = [name, ...recentNames.filter(n => n !== name)].slice(0, 5);
+        localStorage.setItem('crashpong_names', JSON.stringify(recentNames));
+    }
     canContinue  = false;
     score.player = 0;
     score.cpu    = 0;
     serveCount   = 0;
-    beginServe(1); // first serve goes toward player
+    beginServe(1);
 }
 
 function beginServe(dir) {
@@ -248,6 +287,7 @@ function onScore(who) {
     SFX.score();
 
     if (score.player >= settings.scoreToWin || score.cpu >= settings.scoreToWin) {
+        saveToLeaderboard();
         gameState = 'gameover';
         return;
     }
@@ -442,7 +482,7 @@ function scoreHUD() {
     ctx.font = '600 27px "JetBrains Mono",monospace';
     ctx.fillStyle = T.label;
     ctx.fillText('THE REST', W/2, H/2 - 96);
-    ctx.fillText('THE BEST', W/2, H/2 + 108);
+    ctx.fillText(playerName.trim() || 'THE BEST', W/2, H/2 + 108);
 }
 
 // ── Option row (label left, pill buttons right) ─
@@ -483,6 +523,195 @@ function optRow(label, opts, current, y, onChange) {
 
         reg(bx, by, btnW, BTN_H, () => onChange(opt));
     });
+}
+
+// ── DRAW: Intro ───────────────────────────────
+function drawIntro() {
+    buttons = [];
+    bg();
+
+    // Title — identical position to drawMenu
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '700 47px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.white;
+    const titleText = 'CRASH PONG';
+    const metrics   = ctx.measureText(titleText);
+    const titleW    = metrics.width;
+    const textH     = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+    const smSize    = Math.round(textH);
+    const smGap     = 12;
+    const smCenterY = 76 + (metrics.actualBoundingBoxDescent - metrics.actualBoundingBoxAscent) / 2;
+    const smY       = smCenterY - smSize / 2;
+    ctx.drawImage(smileyImg, W/2 - titleW/2 - smGap - smSize, smY, smSize, smSize);
+    ctx.drawImage(smileyImg, W/2 + titleW/2 + smGap,          smY, smSize, smSize);
+    ctx.fillText(titleText, W/2, 76);
+
+    ctx.font = '600 16px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.white;
+    ctx.fillText('CLASSIC  ARCADE', W/2, 124);
+
+    // Divider
+    ctx.setLineDash([]);
+    ctx.strokeStyle = T.dimmer; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(24, 155); ctx.lineTo(W - 24, 155); ctx.stroke();
+
+    // Name input section
+    ctx.font = '600 11px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.dim;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('YOUR  NAME', W/2, 192);
+
+    const inW = 340, inH = 44, inX = W/2 - 170, inY = 212;
+    ctx.beginPath(); ctx.roundRect(inX, inY, inW, inH, 3);
+    ctx.fillStyle = T.btnBg; ctx.fill();
+    ctx.strokeStyle = T.accent; ctx.lineWidth = 1.5; ctx.stroke();
+
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (playerName) {
+        ctx.font = '700 18px "JetBrains Mono",monospace';
+        ctx.fillStyle = T.accent;
+        ctx.fillText(playerName + (cursorBlink % 60 < 30 ? '▌' : ''), W/2, inY + inH / 2);
+    } else {
+        ctx.font = '400 12px "JetBrains Mono",monospace';
+        ctx.fillStyle = T.label;
+        ctx.fillText('TYPE  YOUR  NAME' + (cursorBlink % 60 < 30 ? '  ▌' : ''), W/2, inY + inH / 2);
+    }
+
+    // Name history link (only visible when saved names exist)
+    const bw = 280, bh = 46;
+    let by = inY + inH + 30;
+
+    if (recentNames.length > 0) {
+        ctx.font = '600 16px "JetBrains Mono",monospace';
+        ctx.fillStyle = T.dim;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('OR  CHOOSE  FROM  LIST  →', W/2, by + 14);
+        reg(W/2 - 130, by, 260, 28, () => { gameState = 'playerlist'; });
+        by += 50;
+    }
+
+    // PLAY button
+    rBtn(W/2 - bw/2, by, bw, bh, T.accent, null);
+    ctx.font = '700 15px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.bg;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(playerName.trim() ? '▶  PLAY' : '▶  PLAY  AS  GUEST', W/2, by + bh / 2);
+    reg(W/2 - bw/2, by, bw, bh, startGame);
+    by += bh + 20;
+
+    // LEADERBOARD button
+    rBtn(W/2 - bw/2, by, bw, bh, T.btnBg, T.btnBorder);
+    ctx.font = '700 15px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.dim;
+    ctx.fillText('LEADERBOARD', W/2, by + bh / 2);
+    reg(W/2 - bw/2, by, bw, bh, () => { gameState = 'leaderboard'; });
+
+    // Footer
+    ctx.font = '400 9px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.label;
+    ctx.textAlign = 'center';
+    ctx.fillText('SETTINGS  AVAILABLE  IN-GAME  ·  ESC  CLEARS  NAME', W/2, H - 22);
+}
+
+// ── DRAW: Leaderboard ─────────────────────────
+function drawLeaderboard() {
+    buttons = [];
+    bg();
+
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '700 36px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.white;
+    ctx.fillText('LEADERBOARD', W/2, 62);
+
+    ctx.setLineDash([]);
+    ctx.strokeStyle = T.dimmer; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(24, 90); ctx.lineTo(W - 24, 90); ctx.stroke();
+
+    if (leaderboard.length === 0) {
+        ctx.font = '400 13px "JetBrains Mono",monospace';
+        ctx.fillStyle = T.dim;
+        ctx.fillText('NO  RECORDS  YET', W/2, H / 2);
+        ctx.font = '400 9px "JetBrains Mono",monospace';
+        ctx.fillStyle = T.label;
+        ctx.fillText('PLAY  WITH  YOUR  NAME  TO  APPEAR  HERE', W/2, H / 2 + 28);
+    } else {
+        // Column headers
+        ctx.font = '600 9px "JetBrains Mono",monospace';
+        ctx.fillStyle = T.label;
+        ctx.textAlign = 'left';
+        ctx.fillText('#',       60,  108);
+        ctx.fillText('NAME',    100, 108);
+        ctx.fillText('SCORE',   430, 108);
+        ctx.fillText('RESULT',  540, 108);
+
+        leaderboard.slice(0, 10).forEach((entry, i) => {
+            const ry = 130 + i * 36;
+            if (i < 3) {
+                ctx.fillStyle = T.dimmer;
+                ctx.beginPath(); ctx.roundRect(44, ry - 13, W - 88, 28, 2); ctx.fill();
+            }
+            const rankColor = [T.accent, T.white, T.dim][i] ?? T.dim;
+            ctx.fillStyle = rankColor;
+            ctx.font      = `${i < 3 ? '700' : '400'} 12px "JetBrains Mono",monospace`;
+            ctx.textAlign = 'left';
+            ctx.fillText(`${i + 1}.`,                                    60,  ry);
+            ctx.fillText(entry.name.slice(0, 10),                        100, ry);
+            ctx.fillText(`${entry.playerScore}  ·  ${entry.cpuScore}`,   430, ry);
+            ctx.fillStyle = entry.won ? T.accent : T.label;
+            ctx.fillText(entry.won ? 'WIN' : 'LOSS',                     540, ry);
+        });
+    }
+
+    // BACK button
+    const bw = 200, bh = 36, by = H - 66;
+    rBtn(W/2 - bw/2, by, bw, bh, T.btnBg, T.btnBorder);
+    ctx.font = '700 12px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.dim;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('← BACK', W/2, by + bh / 2);
+    reg(W/2 - bw/2, by, bw, bh, () => { gameState = 'intro'; });
+}
+
+// ── DRAW: Player List ─────────────────────────
+function drawPlayerList() {
+    buttons = [];
+    bg();
+
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '700 28px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.white;
+    ctx.fillText('CHOOSE  PLAYER', W/2, 62);
+
+    ctx.setLineDash([]);
+    ctx.strokeStyle = T.dimmer; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(24, 90); ctx.lineTo(W - 24, 90); ctx.stroke();
+
+    if (recentNames.length === 0) {
+        ctx.font = '400 13px "JetBrains Mono",monospace';
+        ctx.fillStyle = T.dim;
+        ctx.fillText('NO  SAVED  NAMES  YET', W/2, H / 2);
+    } else {
+        recentNames.forEach((name, i) => {
+            const ry     = 118 + i * 52;
+            const rh     = 42;
+            const active = name === playerName;
+            rBtn(60, ry, W - 120, rh, active ? T.accent : T.btnBg, active ? T.accent : T.btnBorder);
+            ctx.font      = `${active ? '700' : '600'} 15px "JetBrains Mono",monospace`;
+            ctx.fillStyle = active ? T.bg : T.dim;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(name, W / 2, ry + rh / 2);
+            reg(60, ry, W - 120, rh, () => { playerName = name; gameState = 'intro'; });
+        });
+    }
+
+    // BACK button
+    const bw = 200, bh = 36, by = H - 66;
+    rBtn(W/2 - bw/2, by, bw, bh, T.btnBg, T.btnBorder);
+    ctx.font = '700 12px "JetBrains Mono",monospace';
+    ctx.fillStyle = T.dim;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('← BACK', W/2, by + bh / 2);
+    reg(W/2 - bw/2, by, bw, bh, () => { gameState = 'intro'; });
 }
 
 // ── DRAW: Menu ────────────────────────────────
@@ -610,7 +839,7 @@ function drawMenu() {
         rBtn(rightX, ry, bw, ph, T.btnBg, T.accent);
         ctx.fillStyle = T.accent;
         ctx.fillText('START OVER', rightX + bw/2, ry + ph/2);
-        reg(rightX, ry, bw, ph, startGame);
+        reg(rightX, ry, bw, ph, () => { canContinue = false; gameState = 'intro'; });
     } else {
         const pw = 260, pxBtn = W/2 - pw/2;
         rBtn(pxBtn, ry, pw, ph, T.accent, null);
@@ -623,7 +852,7 @@ function drawMenu() {
     ctx.font = '400 9px "JetBrains Mono",monospace';
     ctx.fillStyle = T.label;
     ctx.textAlign = 'center';
-    ctx.fillText('ESC  ·  QUIT', W/2, H - 22);
+    ctx.fillText('ESC  ·  RESUME  OR  HOME', W/2, H - 22);
 }
 
 // ── DRAW: Countdown ───────────────────────────
@@ -775,6 +1004,13 @@ function drawGameOver() {
     ctx.fillStyle = T.dim;
     ctx.fillText('MAIN MENU', W/2, by + bh/2);
     reg(W/2 - bw/2, by, bw, bh, goToMenu);
+
+    // LEADERBOARD
+    by += bh + 10; // 465
+    rBtn(W/2 - bw/2, by, bw, bh, T.btnBg, T.btnBorder);
+    ctx.fillStyle = T.dim;
+    ctx.fillText('LEADERBOARD', W/2, by + bh/2);
+    reg(W/2 - bw/2, by, bw, bh, () => { gameState = 'leaderboard'; });
 }
 
 // ── Custom cursor ──────────────────────────────
@@ -864,11 +1100,14 @@ function draw() {
     ctx.setTransform(1, 0, 0, 1, 0, 0); // reset to canvas coords; clip stays in device space
 
     switch (gameState) {
-        case 'menu':      drawMenu();      break;
-        case 'countdown': drawCountdown(); break;
-        case 'playing':   drawGame();      break;
-        case 'paused':    drawPaused();    break;
-        case 'gameover':  drawGameOver();  break;
+        case 'intro':       drawIntro();       break;
+        case 'menu':        drawMenu();        break;
+        case 'countdown':   drawCountdown();   break;
+        case 'playing':     drawGame();        break;
+        case 'paused':      drawPaused();      break;
+        case 'gameover':    drawGameOver();    break;
+        case 'leaderboard': drawLeaderboard(); break;
+        case 'playerlist':  drawPlayerList();  break;
     }
     drawCursor();
     ctx.restore(); // remove organic clip
@@ -877,5 +1116,5 @@ function draw() {
 }
 
 // ── Loop ───────────────────────────────────────
-function loop() { update(); draw(); requestAnimationFrame(loop); }
+function loop() { cursorBlink++; update(); draw(); requestAnimationFrame(loop); }
 loop();
